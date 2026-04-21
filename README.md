@@ -100,8 +100,15 @@ dws/dw_triggers/                # Event-driven entry points
 
 ## Triggers & GitHub integration
 
-Four triggers turn external events into DW runs. Each trigger polls (or
-watches) and subprocess-launches a DW when it sees something new.
+Four triggers turn external events into DW runs. Each trigger creates a
+per-run git branch + worktree under `.dw-worktrees/`, launches the DW via
+`dw_runner.py`, and — once the workflow finishes — auto-pushes the branch
+and opens a **draft PR** back to `main` linking the source issue / failed
+run / inbox file. Many runs can execute in parallel without colliding on
+the shared working tree. See
+[dws/README.md#branch--worktree-per-run](dws/README.md#branch--worktree-per-run)
+for the naming rules, `/branch <type>` directive, and the
+`scripts/cleanup-worktrees.sh` helper.
 
 | Trigger | Fires on | Default workflow |
 |---|---|---|
@@ -145,18 +152,23 @@ Tail logs with `tail -f logs/triggers/*.log`. Stop everything with
 **GitHub issues.** Open an issue using the "DW agent task" template (the
 label `dw-trigger` is auto-applied). The issue body is the prompt.
 
-Default workflow is `dw_plan_build_review_fix`. Override per-issue by
-adding a `/workflow <name>` line anywhere in the body — the directive is
-stripped before the prompt is sent:
+Default workflow is `dw_plan_build_review_fix`. Each issue gets its own
+branch + worktree (`feature/dw-<id>-issue-<n>-<slug>`, or `bugfix/` /
+`refactor/` depending on keywords) and — when the DW finishes — an
+auto-opened draft PR that `closes #<n>`. Override per-issue with
+directives anywhere in the body:
 
 ```
 /workflow dw_plan
-Just draft the plan for the new /health endpoint; don't build anything yet.
+/branch refactor
+Draft a plan for extracting a response_builder helper from apps/main.py.
 ```
 
-Unknown workflow names fall back to the default with a warning in the
-trigger log. The agent posts a `[DW-AGENTS]` comment on the issue when it
-starts.
+`/workflow` picks a different DW; `/branch` pins the branch type
+(`feature`, `bugfix`, `refactor`). Both are stripped from the prompt.
+Unknown names fall back to the defaults with a warning in the trigger log.
+The agent posts a `[DW-AGENTS]` comment on the issue when it starts and
+again with the PR link when finished.
 
 **Pull requests.** Add the `dw-review` label to any PR. The default
 workflow is `dw_plan_security_review_patch` which chains

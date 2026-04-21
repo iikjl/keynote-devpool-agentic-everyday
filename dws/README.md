@@ -99,10 +99,49 @@ The fix/patch loop heuristic: if the review output contains `FAIL`,
 iteration fires. Loop exits as soon as a re-review comes back clean or
 `MAX_FIX_ATTEMPTS` (2) is reached.
 
+## Branch & worktree per run
+
+Triggers (except PR review, which has its own worktree flow) create a
+**per-run git branch + worktree** before firing the DW, so many runs can
+execute in parallel without colliding on the shared working tree. After the
+DW finishes, `dw_runner.py` pushes the branch and opens a **draft PR** back
+to `main` linking the source.
+
+**Branch naming.** `<type>/dw-<dw_id>-<slug>` — type is one of
+`feature`, `bugfix`, or `refactor`:
+
+- `/branch <type>` directive in an issue body / filesystem prompt pins the type
+- Otherwise inferred from keywords: `fix` / `bug` / `crash` → `bugfix`,
+  `refactor` / `rename` / `cleanup` → `refactor`, else `feature`
+- CI-failure auto-fix runs always use `bugfix/`
+
+**Worktree layout.** Every run lives under `.dw-worktrees/<branch>/` (the
+branch `/` is replaced with `__` in the directory name). `.dw-worktrees/`
+is gitignored. Inspect commits with
+`git -C .dw-worktrees/<dir> log` and the draft PR link from the trigger log.
+
+**Auto-opened draft PR.** After the DW exits cleanly and produces a commit,
+`dw_runner.py` runs `git push -u origin <branch>` then
+`gh pr create --draft --base main`. The PR body links `closes #N` / `refs #N`
+for issue/PR-sourced runs. If the DW made no edits (diagnose-only, etc.),
+the runner exits cleanly without push/PR.
+
+**Cleanup.** Worktrees and DW branches are kept after the run for your
+inspection. Batch-clean with:
+
+```bash
+./scripts/cleanup-worktrees.sh              # remove all .dw-worktrees/ + local dw-* branches
+DRY_RUN=1 ./scripts/cleanup-worktrees.sh    # show what would be removed
+```
+
+The PR trigger keeps its original semantics (checks out the PR head detached
+for patch review) — it does not auto-push or open a new PR.
+
 ## Triggers (`dw_triggers/`)
 
-Event-driven entry points that subprocess-launch a DW with a prompt extracted
-from the event. Standalone uv scripts — no shared services.
+Event-driven entry points that subprocess-launch `dw_runner.py` (which then
+runs the DW) with a prompt extracted from the event. Standalone uv scripts —
+no shared services.
 
 **Running them.** The simplest way is the portable launcher at the repo root:
 
@@ -149,22 +188,29 @@ Polls `gh issue list --label dw-trigger` every N seconds; each newly-seen
 qualifying issue fires a DW with the issue body as the prompt. Requires the
 `gh` CLI to be installed and authenticated against the target repo.
 
-**Default workflow:** `dw_plan_build_review_fix`.
+**Default workflow:** `dw_plan_build_review_fix`. Each issue lands in a
+per-run branch + worktree and ends in an auto-opened draft PR that closes
+the issue (see [Branch & worktree per run](#branch--worktree-per-run)).
 
-**Per-issue override via `/workflow <name>` directive.** Any line in the
-issue body matching `/workflow <name>` (case-insensitive, `:` or whitespace
-separator, trailing `.py` is stripped) swaps the workflow for that issue
-only. The directive line is removed before the prompt is sent to the agent.
+**Per-issue directives in the issue body:**
+
+- `/workflow <name>` — swap the DW for this issue (trailing `.py` is stripped)
+- `/branch <type>` — pin the branch type (`feature`, `bugfix`, or `refactor`)
+
+Both directives are case-insensitive, accept `:` or whitespace separator, and
+are stripped from the body before the prompt is sent to the agent.
 
 Example issue body:
 
 ```
 /workflow dw_plan
-Draft the plan for a new /health endpoint in apps/main.py — don't build.
+/branch refactor
+Draft the plan for extracting a response_builder helper from apps/main.py.
 ```
 
 Unknown workflow names fall back to the trigger's default (from `--workflow`)
-with a warning in the trigger log.
+with a warning in the trigger log. Unknown branch types fall back to the
+keyword-inference heuristic.
 
 ```bash
 ./dws/dw_triggers/trigger_github_issue.py
@@ -223,9 +269,10 @@ and launches a DW with a diagnose-and-fix prompt containing the log tail.
 ```
 
 Seeds its processed-set from the current failure list at startup so historical
-failures don't fire on first launch. Default DW is `dw_prompt` (diagnose only)
-to avoid auto-editing on flaky tests; pass `--workflow dw_plan_build` to
-close the loop.
+failures don't fire on first launch. Default DW is `dw_prompt` (diagnose only,
+no branch) to avoid auto-editing on flaky tests; pass `--workflow dw_plan_build`
+to close the loop — auto-fix runs land in a `bugfix/dw-<id>-ci-<run>` branch
++ worktree and open a draft PR when complete.
 
 Post-back: if the failed run is associated with a PR, a comment is posted
 there. Runs on main (no PR) still fire the DW but skip post-back.

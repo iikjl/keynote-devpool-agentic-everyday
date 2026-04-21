@@ -64,10 +64,16 @@ def review_needs_patch(review_output: str, review_type: str) -> bool:
     default=MAX_PATCH_ITERATIONS,
     help=f"Max patch loop iterations per review (default: {MAX_PATCH_ITERATIONS})",
 )
-def main(prompt: str, model: str, working_dir: str, max_patch_iterations: int):
+@click.option(
+    "--dw-id", type=str, default=None, help="DW ID (auto-generated if omitted)"
+)
+def main(
+    prompt: str, model: str, working_dir: str, max_patch_iterations: int, dw_id: str
+):
     """Run full SDLC pipeline: Plan → Build → Test → Review(+Patch) → Security(+Patch)."""
     console = Console()
-    dw_id = generate_short_id()
+    if not dw_id:
+        dw_id = generate_short_id()
 
     if not working_dir:
         working_dir = os.getcwd()

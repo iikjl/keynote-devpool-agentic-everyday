@@ -10,9 +10,15 @@
 GitHub Issue Trigger - poll `gh` for labeled issues and launch a DW.
 
 Polls the current repository (via `gh issue list`) for open issues carrying a
-target label (default: `dw-trigger`). Each newly-seen qualifying issue fires a
-subprocess-launched DW with the issue body as the prompt. Processed issue
-numbers are remembered in-memory for the life of the process.
+target label (default: `dw-trigger`). Each newly-seen qualifying issue creates
+a per-run git branch + worktree under `.dw-worktrees/`, then fires the DW via
+`dw_runner.py`. The runner pushes the branch and opens a draft PR back to
+`main` after the workflow finishes. Multiple issues run in parallel without
+colliding on the shared working tree.
+
+Per-issue overrides via directives in the issue body:
+  /workflow <name>     pick a different DW (default: dw_plan_build_review_fix)
+  /branch <type>       pin the branch type (feature|bugfix|refactor)
 
 Requires: the GitHub CLI (`gh`) authenticated against the target repo.
 
@@ -41,9 +47,12 @@ PROJECT_ROOT = DWS_DIR.parent
 
 sys.path.insert(0, str(DWS_DIR / "dw_modules"))
 
+from branching import infer_branch_type  # noqa: E402
+from branching import create_worktree, make_branch_name, parse_branch_directive
 from github import DW_BOT_IDENTIFIER, is_bot_content, make_issue_comment  # noqa: E402
 
 DEFAULT_WORKFLOW = "dw_plan_build_review_fix"
+RUNNER_SCRIPT = DWS_DIR / "dw_runner.py"
 WORKFLOW_DIRECTIVE = re.compile(
     r"^\s*/workflow[:\s]+(\S+)\s*$", re.MULTILINE | re.IGNORECASE
 )
@@ -84,7 +93,7 @@ def fetch_issues(label: str) -> list[dict]:
         "--label",
         label,
         "--json",
-        "number,title,body,labels",
+        "number,title,body,labels,url",
         "--limit",
         "50",
     ]
@@ -104,18 +113,18 @@ def launch_workflow(
     issue: dict,
     default_script: Path,
     model: str | None,
-    working_dir: str,
+    fallback_working_dir: str,
     console: Console,
 ) -> None:
-    """Subprocess-launch the DW with the issue body as prompt.
+    """Create a branch+worktree for the issue and Popen `dw_runner.py`.
 
-    Honors a `/workflow <name>` directive in the issue body. If the name
-    resolves to a script under `dws/`, that script is used instead of
-    `default_script` and the directive line is stripped from the prompt.
+    Honors `/workflow <name>` and `/branch <type>` directives in the issue body.
+    Falls back to the shared working dir if worktree creation fails.
     """
     number = issue["number"]
     title = issue.get("title", "")
     body = (issue.get("body") or "").strip()
+    issue_url = issue.get("url", "")
 
     if is_bot_content(title) or is_bot_content(body):
         console.print(
@@ -141,6 +150,8 @@ def launch_workflow(
     else:
         workflow_script = default_script
 
+    branch_directive, body = parse_branch_directive(body)
+
     prompt = body or title
     if not prompt:
         console.print(
@@ -149,12 +160,30 @@ def launch_workflow(
         return
 
     dw_id = uuid.uuid4().hex[:8]
+    branch_type = branch_directive or infer_branch_type(prompt)
+    branch_name = make_branch_name(branch_type, dw_id, f"issue-{number}-{title}")
+
+    try:
+        worktree = create_worktree(PROJECT_ROOT, branch_name)
+        effective_working_dir = str(worktree)
+        worktree_note = f"`{worktree.relative_to(PROJECT_ROOT)}`"
+        auto_push_flag = "--auto-push"
+    except RuntimeError as exc:
+        console.print(
+            f"[yellow]Worktree creation failed for issue #{number}: {exc}. "
+            f"Falling back to shared dir, no auto-PR.[/yellow]"
+        )
+        effective_working_dir = fallback_working_dir
+        worktree_note = "(shared working dir — no branch)"
+        auto_push_flag = "--no-auto-push"
 
     console.print(
         Panel(
             f"[cyan]Issue #{number}:[/cyan] {title}\n"
             f"[cyan]Workflow:[/cyan] {workflow_script.name}\n"
             f"[cyan]DW ID:[/cyan] {dw_id}\n"
+            f"[cyan]Branch:[/cyan] {branch_name}\n"
+            f"[cyan]Worktree:[/cyan] {effective_working_dir}\n"
             f"[cyan]Prompt preview:[/cyan] {prompt[:120]}"
             + ("..." if len(prompt) > 120 else ""),
             title="[bold green]GitHub issue trigger fired[/bold green]",
@@ -163,12 +192,15 @@ def launch_workflow(
     )
 
     comment_body = (
-        f"🤖 DW triggered\n\n"
+        f"DW triggered\n\n"
         f"- Workflow: `{workflow_script.stem}`\n"
         f"- DW ID: `{dw_id}`\n"
+        f"- Branch: `{branch_name}`\n"
+        f"- Worktree: {worktree_note}\n"
         f"- Model: `{model or '(default)'}`\n"
         f"- Logs: `agents/{dw_id}/`\n\n"
-        f"Running in the background — will not post progress updates."
+        f"A comment will be posted as each phase starts and finishes. "
+        f"A draft PR will be opened automatically once the workflow finishes."
     )
     try:
         make_issue_comment(number, comment_body)
@@ -177,15 +209,32 @@ def launch_workflow(
             f"[yellow]Could not post comment to issue #{number}: {exc}[/yellow]"
         )
 
-    cmd = ["uv", "run", str(workflow_script), prompt, "--dw-id", dw_id]
+    cmd = [
+        "uv",
+        "run",
+        str(RUNNER_SCRIPT),
+        str(workflow_script),
+        prompt,
+        "--dw-id",
+        dw_id,
+        "--working-dir",
+        effective_working_dir,
+        "--branch",
+        branch_name,
+        auto_push_flag,
+        "--source-kind",
+        "issue",
+        "--source-ref",
+        str(number),
+    ]
+    if issue_url:
+        cmd.extend(["--source-url", issue_url])
     if model:
         cmd.extend(["--model", model])
-    if working_dir:
-        cmd.extend(["--working-dir", working_dir])
 
     subprocess.Popen(cmd, cwd=PROJECT_ROOT, start_new_session=True)
     console.print(
-        f"[dim]Launched {workflow_script.name} for issue #{number} (dw_id={dw_id}) in background.[/dim]"
+        f"[dim]Launched runner for issue #{number} (dw_id={dw_id}) in background.[/dim]"
     )
 
 
@@ -217,7 +266,7 @@ def launch_workflow(
     "--working-dir",
     type=click.Path(exists=True, file_okay=False, dir_okay=True, resolve_path=True),
     default=None,
-    help="Working directory passed to the DW (default: project root).",
+    help="Fallback working directory when worktree creation fails.",
 )
 def main(
     label: str, interval: int, workflow: str, model: str | None, working_dir: str | None
@@ -226,6 +275,9 @@ def main(
     workflow_script = DWS_DIR / f"{workflow}.py"
     if not workflow_script.exists():
         console.print(f"[red]Workflow script not found: {workflow_script}[/red]")
+        sys.exit(1)
+    if not RUNNER_SCRIPT.exists():
+        console.print(f"[red]Runner script not found: {RUNNER_SCRIPT}[/red]")
         sys.exit(1)
 
     signal.signal(signal.SIGINT, _handle_signal)
@@ -236,7 +288,8 @@ def main(
             f"[cyan]Label:[/cyan] {label}\n"
             f"[cyan]Interval:[/cyan] {interval}s\n"
             f"[cyan]Workflow:[/cyan] {workflow_script.name}\n"
-            f"[cyan]Model:[/cyan] {model or '(default)'}",
+            f"[cyan]Model:[/cyan] {model or '(default)'}\n"
+            f"[cyan]Mode:[/cyan] branch + worktree per run, auto draft PR",
             title="[bold blue]GitHub Issue Trigger[/bold blue]",
             border_style="blue",
         )
@@ -244,7 +297,7 @@ def main(
     console.print("[dim]Ctrl-C to stop.[/dim]")
 
     processed: set[int] = set()
-    effective_working_dir = working_dir or str(PROJECT_ROOT)
+    fallback_working_dir = working_dir or str(PROJECT_ROOT)
 
     while not _shutdown:
         try:
@@ -263,7 +316,7 @@ def main(
                 if _shutdown:
                     break
                 launch_workflow(
-                    issue, workflow_script, model, effective_working_dir, console
+                    issue, workflow_script, model, fallback_working_dir, console
                 )
                 processed.add(issue["number"])
 

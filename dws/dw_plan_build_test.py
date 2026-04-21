@@ -42,10 +42,14 @@ from agent import generate_short_id
     type=click.Path(exists=True, file_okay=False, dir_okay=True, resolve_path=True),
     help="Working directory (default: current directory)",
 )
-def main(prompt: str, model: str, working_dir: str):
+@click.option(
+    "--dw-id", type=str, default=None, help="DW ID (auto-generated if omitted)"
+)
+def main(prompt: str, model: str, working_dir: str, dw_id: str):
     """Run Plan + Build + Test pipeline."""
     console = Console()
-    dw_id = generate_short_id()
+    if not dw_id:
+        dw_id = generate_short_id()
 
     if not working_dir:
         working_dir = os.getcwd()
