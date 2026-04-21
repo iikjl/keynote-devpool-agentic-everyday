@@ -10,25 +10,25 @@ Instead of chatting with AI tools interactively, we template our engineering pat
 
 ## Side-by-Side: Claude Code SDK vs Copilot SDK
 
-| Component | Claude Code SDK (app1) | Copilot SDK (app2) |
+| Component | Copilot SDK (app2) |
 |-----------|----------------------|-------------------|
-| **Core module** | `agent.py` (subprocess CLI) | `agent.py` (JSON-RPC server) |
-| **SDK module** | `agent_sdk.py` (claude-code-sdk) | `agent_sdk.py` (copilot-sdk) |
-| **Prompt CLI** | `dw_prompt.py` | `dw_prompt.py` |
-| **SDK CLI** | `dw_sdk_prompt.py` | `dw_sdk_prompt.py` |
-| **Specs** | `specs/*.md` | `specs/*.md` |
-| **Apps** | `apps/` | `apps/` |
-| **Output** | `cc_raw_output.jsonl` | `cp_raw_output.jsonl` |
+| **Core module** | `agent.py` (JSON-RPC server) |
+| **SDK module** | `agent_sdk.py` (copilot-sdk) |
+| **Prompt CLI** | `dw_prompt.py` |
+| **SDK CLI** | `dw_sdk_prompt.py` |
+| **Specs** | `specs/*.md` |
+| **Apps** | `apps/` |
+| **Output** | `cp_raw_output.jsonl` |
 
 ### Architectural Differences
 
 | Aspect | Claude Code | Copilot |
 |--------|------------|---------|
-| Communication | One-shot subprocess | JSON-RPC server mode |
-| Permissions | `--dangerously-skip-permissions` | `onPermissionRequest` handler (required) |
-| Models | Anthropic only (Haiku/Sonnet/Opus) | Multi-model (Claude, GPT-4o, Gemini) |
-| Session | Session ID resume | Full session persistence |
-| Output | JSONL stream | Streaming events |
+| Communication | JSON-RPC server mode |
+| Permissions | `onPermissionRequest` handler (required) |
+| Models |  Multi-model (Claude, GPT-4o, Gemini) |
+| Session |  Full session persistence |
+| Output | Streaming events |
 
 ## Prerequisites
 
