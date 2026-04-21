@@ -1,0 +1,33 @@
+name: DW agent task
+description: Drop a prompt here and the DW agent will pick it up.
+title: "[DW] "
+labels: ["dw-trigger"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue will be picked up by `trigger_github_issue.py` while it's
+        running. The issue body becomes the prompt for the DW agent.
+
+        **Default workflow:** `dw_plan_build_review_fix` (plan → build →
+        review → fix loop).
+
+        **Override per-issue:** add a line to the body like
+        `/workflow dw_plan` (or any script name under `dws/`, without `.py`).
+        The directive line is stripped before the prompt is sent to the
+        agent. If the named workflow doesn't exist, the default is used.
+
+        The agent will post a `[DW-AGENTS]` comment when it starts.
+  - type: textarea
+    id: prompt
+    attributes:
+      label: Prompt
+      description: |
+        What do you want the agent to do? Optionally start with a
+        `/workflow <name>` line to pick a non-default workflow.
+      placeholder: |
+        /workflow dw_plan
+        Add a /health endpoint to apps/main.py that returns {status: ok}
+        and write a test for it.
+    validations:
+      required: true

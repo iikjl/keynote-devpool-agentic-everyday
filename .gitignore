@@ -1,0 +1,70 @@
+# Environment variables
+.env
+app/server/.env
+.ports.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv
+*.egg-info/
+.pytest_cache/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dist/
+.npm
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+trees/
+!trees/README.md
+
+# Agent output directories
+agents/
+
+# Filesystem trigger: processed inbox files
+dw_inbox/*.md
+!dw_inbox/README.md
+
+# PR trigger: per-PR git worktrees (created when --isolated, the default)
+.dw-worktrees/
+
+# Copilot output files
+copilot-max-output.json
+copilot-max-output.jsonl
+
+storage.json
+
+deep_specs/
+
+screenshots/
+
+logs/
+
+deep_docs/
