@@ -17,12 +17,12 @@ create_label() {
   local name="$1"
   local description="$2"
   local color="$3"
-  if gh label list "${REPO_ARG[@]}" --limit 200 --json name -q '.[].name' | grep -qx "$name"; then
+  if gh label list ${REPO_ARG[@]+"${REPO_ARG[@]}"} --limit 200 --json name -q '.[].name' | grep -qx "$name"; then
     echo "Label '$name' exists — updating."
-    gh label edit "$name" "${REPO_ARG[@]}" --description "$description" --color "$color"
+    gh label edit "$name" ${REPO_ARG[@]+"${REPO_ARG[@]}"} --description "$description" --color "$color"
   else
     echo "Creating label '$name'."
-    gh label create "$name" "${REPO_ARG[@]}" --description "$description" --color "$color"
+    gh label create "$name" ${REPO_ARG[@]+"${REPO_ARG[@]}"} --description "$description" --color "$color"
   fi
 }
 

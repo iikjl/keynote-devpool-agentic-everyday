@@ -9,6 +9,7 @@ from typing import Dict, Tuple
 
 APP_VERSION = "1.0.0"
 PROCESS_START_TIME = time.monotonic()
+REQUEST_COUNT: int = 0
 
 Response = Tuple[HTTPStatus, Dict[str, str], bytes]
 JsonPayload = Dict[str, object]
@@ -28,6 +29,7 @@ def build_response(
     path: str,
     *,
     include_health_details: bool = False,
+    request_count: int = 0,
 ) -> Response:
     if path == "/health":
         if method == "GET":
@@ -51,6 +53,22 @@ def build_response(
     if path == "/hello":
         if method == "GET":
             return json_response(HTTPStatus.OK, {"message": "hello world"})
+        status, headers, body = json_response(
+            HTTPStatus.METHOD_NOT_ALLOWED,
+            {"error": f"{method} is not allowed for {path}"},
+        )
+        headers["Allow"] = "GET"
+        return status, headers, body
+
+    if path == "/metrics":
+        if method == "GET":
+            return json_response(
+                HTTPStatus.OK,
+                {
+                    "request_count": request_count,
+                    "uptime": round(time.monotonic() - PROCESS_START_TIME, 3),
+                },
+            )
         status, headers, body = json_response(
             HTTPStatus.METHOD_NOT_ALLOWED,
             {"error": f"{method} is not allowed for {path}"},
@@ -87,11 +105,14 @@ class AppHandler(BaseHTTPRequestHandler):
         self.handle_method("OPTIONS")
 
     def handle_method(self, method: str) -> None:
+        global REQUEST_COUNT
+        REQUEST_COUNT += 1
         self.respond(
             *build_response(
                 method,
                 self.path,
                 include_health_details=os.environ.get("HEALTH_DETAILS") == "1",
+                request_count=REQUEST_COUNT,
             )
         )
 

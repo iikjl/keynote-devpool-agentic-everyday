@@ -50,5 +50,24 @@ class BuildResponseTests(unittest.TestCase):
         )
 
 
+class MetricsEndpointTests(unittest.TestCase):
+    def test_metrics_returns_ok_with_request_count_and_uptime(self) -> None:
+        status, headers, body = build_response("GET", "/metrics", request_count=42)
+        payload = json.loads(body)
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertEqual(headers["Content-Type"], "application/json; charset=utf-8")
+        self.assertEqual(payload["request_count"], 42)
+        self.assertIn("uptime", payload)
+        self.assertIsInstance(payload["uptime"], (int, float))
+        self.assertGreaterEqual(payload["uptime"], 0)
+
+    def test_metrics_method_not_allowed_for_post(self) -> None:
+        status, headers, body = build_response("POST", "/metrics")
+
+        self.assertEqual(status, HTTPStatus.METHOD_NOT_ALLOWED)
+        self.assertEqual(headers["Allow"], "GET")
+
+
 if __name__ == "__main__":
     unittest.main()
