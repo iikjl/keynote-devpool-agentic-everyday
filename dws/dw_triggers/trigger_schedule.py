@@ -11,8 +11,12 @@
 Schedule Trigger - time-driven DW runs (nightly security review, periodic sweeps).
 
 Unlike the polling triggers, this fires on a fixed interval regardless of
-external events. Use it for recurring batch work: a nightly
-`dw_security_review`, a weekly `dw_plan_build_test` sanity pass, etc.
+external events. Each fire creates a per-run git branch + worktree under
+`.dw-worktrees/` and launches the DW via `dw_runner.py`. The runner pushes
+the branch and opens a draft PR back to `main` after the workflow finishes.
+
+Use it for recurring batch work: a nightly `dw_security_review`, a weekly
+`dw_plan_build_test` sanity pass, etc.
 
 Interval accepts simple suffixed values: `30s`, `15m`, `6h`, `1d`.
 
@@ -49,6 +53,18 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 DWS_DIR = SCRIPT_DIR.parent
 PROJECT_ROOT = DWS_DIR.parent
 
+sys.path.insert(0, str(DWS_DIR / "dw_modules"))
+
+from agent import generate_short_id  # noqa: E402
+from branching import (
+    create_worktree,
+    infer_branch_type,  # noqa: E402
+    make_branch_name,
+    parse_branch_directive,
+)
+
+RUNNER_SCRIPT = DWS_DIR / "dw_runner.py"
+
 _shutdown = False
 
 
@@ -70,17 +86,45 @@ def parse_interval(spec: str) -> tuple[int, str]:
 
 
 def launch_workflow(
-    prompt: str,
+    raw_prompt: str,
     workflow_script: Path,
     model: str | None,
-    working_dir: str,
+    fallback_working_dir: str,
     console: Console,
 ) -> None:
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    branch_directive, prompt = parse_branch_directive(raw_prompt)
+    if not prompt:
+        console.print(
+            "[yellow]Schedule prompt is empty after directive strip; skipping.[/yellow]"
+        )
+        return
+
+    dw_id = generate_short_id()
+    branch_type = branch_directive or infer_branch_type(prompt)
+    branch_name = make_branch_name(branch_type, dw_id, "schedule")
+
+    try:
+        worktree = create_worktree(PROJECT_ROOT, branch_name)
+        effective_working_dir = str(worktree)
+        worktree_note = str(worktree.relative_to(PROJECT_ROOT))
+        auto_push_flag = "--auto-push"
+    except RuntimeError as exc:
+        console.print(
+            f"[yellow]Worktree creation failed for scheduled run: {exc}. "
+            f"Falling back to shared dir, no auto-PR.[/yellow]"
+        )
+        effective_working_dir = fallback_working_dir
+        worktree_note = "(shared working dir — no branch)"
+        auto_push_flag = "--no-auto-push"
+
     console.print(
         Panel(
             f"[cyan]Time:[/cyan] {timestamp}\n"
             f"[cyan]Workflow:[/cyan] {workflow_script.name}\n"
+            f"[cyan]DW ID:[/cyan] {dw_id}\n"
+            f"[cyan]Branch:[/cyan] {branch_name}\n"
+            f"[cyan]Worktree:[/cyan] {worktree_note}\n"
             f"[cyan]Prompt preview:[/cyan] {prompt[:120]}"
             + ("..." if len(prompt) > 120 else ""),
             title="[bold green]Schedule trigger fired[/bold green]",
@@ -88,14 +132,29 @@ def launch_workflow(
         )
     )
 
-    cmd = ["uv", "run", str(workflow_script), prompt]
+    cmd = [
+        "uv",
+        "run",
+        str(RUNNER_SCRIPT),
+        str(workflow_script),
+        prompt,
+        "--dw-id",
+        dw_id,
+        "--working-dir",
+        effective_working_dir,
+        "--branch",
+        branch_name,
+        auto_push_flag,
+        "--source-kind",
+        "schedule",
+        "--source-ref",
+        timestamp,
+    ]
     if model:
         cmd.extend(["--model", model])
-    if working_dir:
-        cmd.extend(["--working-dir", working_dir])
 
     subprocess.Popen(cmd, cwd=PROJECT_ROOT, start_new_session=True)
-    console.print(f"[dim]Launched {workflow_script.name} in background.[/dim]")
+    console.print(f"[dim]Launched runner in background (dw_id={dw_id}).[/dim]")
 
 
 @click.command()
@@ -128,7 +187,7 @@ def launch_workflow(
     "--working-dir",
     type=click.Path(exists=True, file_okay=False, dir_okay=True, resolve_path=True),
     default=None,
-    help="Working directory passed to the DW (default: project root).",
+    help="Fallback working directory when worktree creation fails.",
 )
 def main(
     prompt: str,
@@ -149,14 +208,17 @@ def main(
     if not workflow_script.exists():
         console.print(f"[red]Workflow script not found: {workflow_script}[/red]")
         sys.exit(1)
+    if not RUNNER_SCRIPT.exists():
+        console.print(f"[red]Runner script not found: {RUNNER_SCRIPT}[/red]")
+        sys.exit(1)
 
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    effective_working_dir = working_dir or str(PROJECT_ROOT)
+    fallback_working_dir = working_dir or str(PROJECT_ROOT)
 
     def fire() -> None:
-        launch_workflow(prompt, workflow_script, model, effective_working_dir, console)
+        launch_workflow(prompt, workflow_script, model, fallback_working_dir, console)
 
     if once:
         console.print(

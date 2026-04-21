@@ -507,3 +507,26 @@ Likely questions:
 - "Where do I start?" → Cursor if you have a license. Aider if you want
   to go deeper. Claude Code for state of the art.
 -->
+
+---
+
+<!-- _class: lead -->
+
+![bg right:45%](assets/qr-repo.svg)
+
+# The repo behind this QR
+
+Everything you just saw — specs, triggers, workflows — is in the repo.
+**Scan it, clone it, break it, learn from it.**
+
+<!--
+SPEAKER NOTES (leave up during Q&A)
+
+"Everything I showed — the `copilot-demo/` code, the triggers, the SDK
+wrappers, the specs — it's all behind this QR. Scan it, clone it, break
+it, learn from it. If you build something interesting on top, I want to
+hear about it."
+
+Leave this slide up through Q&A so people can scan while you answer.
+-->
+

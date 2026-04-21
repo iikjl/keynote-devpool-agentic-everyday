@@ -62,7 +62,7 @@ def fetch_prs(label: str) -> list[dict]:
         "--label",
         label,
         "--json",
-        "number,title,body,headRefName,baseRefName,author",
+        "number,title,body,headRefName,baseRefName,author,url",
         "--limit",
         "50",
     ]
@@ -223,22 +223,42 @@ def launch_workflow(
         f"- Working dir: {worktree_note}\n"
         f"- Diff size: {len(diff)} chars\n"
         f"- Logs: `agents/{dw_id}/`\n\n"
-        f"Running in the background — will not post progress updates."
+        f"Running in the background — will post a comment per phase as it progresses."
     )
     try:
         make_pr_comment(number, comment_body)
     except RuntimeError as exc:
         console.print(f"[yellow]Could not post comment to PR #{number}: {exc}[/yellow]")
 
-    cmd = ["uv", "run", str(workflow_script), prompt, "--dw-id", dw_id]
+    runner_script = DWS_DIR / "dw_runner.py"
+    pr_url = (pr.get("url") or "").strip() or None
+    cmd = [
+        "uv",
+        "run",
+        str(runner_script),
+        str(workflow_script),
+        prompt,
+        "--dw-id",
+        dw_id,
+        "--working-dir",
+        effective_working_dir,
+        "--branch",
+        f"pr-{number}",
+        "--no-auto-push",
+        "--source-kind",
+        "pr",
+        "--source-ref",
+        str(number),
+    ]
+    if pr_url:
+        cmd.extend(["--source-url", pr_url])
     if model:
         cmd.extend(["--model", model])
-    if effective_working_dir:
-        cmd.extend(["--working-dir", effective_working_dir])
 
     subprocess.Popen(cmd, cwd=PROJECT_ROOT, start_new_session=True)
     console.print(
-        f"[dim]Launched {workflow_script.name} for PR #{number} in background.[/dim]"
+        f"[dim]Launched dw_runner.py → {workflow_script.name} for PR #{number} "
+        f"in background (phase comments enabled).[/dim]"
     )
 
 
