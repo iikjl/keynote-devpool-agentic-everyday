@@ -60,6 +60,16 @@ def build_response(
         headers["Allow"] = "GET"
         return status, headers, body
 
+    if path == "/ping":
+        if method == "GET":
+            return json_response(HTTPStatus.OK, {"pong": True})
+        status, headers, body = json_response(
+            HTTPStatus.METHOD_NOT_ALLOWED,
+            {"error": f"{method} is not allowed for {path}"},
+        )
+        headers["Allow"] = "GET"
+        return status, headers, body
+
     if path == "/metrics":
         if method == "GET":
             return json_response(

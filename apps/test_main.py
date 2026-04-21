@@ -39,6 +39,13 @@ class BuildResponseTests(unittest.TestCase):
         self.assertEqual(headers["Content-Type"], "application/json; charset=utf-8")
         self.assertEqual(json.loads(body), {"message": "hello world"})
 
+    def test_ping_endpoint_returns_ok_json(self) -> None:
+        status, headers, body = build_response("GET", "/ping")
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertEqual(headers["Content-Type"], "application/json; charset=utf-8")
+        self.assertEqual(json.loads(body), {"pong": True})
+
     def test_unknown_route_returns_not_found_json(self) -> None:
         status, headers, body = build_response("GET", "/unknown")
 
@@ -67,6 +74,16 @@ class MetricsEndpointTests(unittest.TestCase):
 
         self.assertEqual(status, HTTPStatus.METHOD_NOT_ALLOWED)
         self.assertEqual(headers["Allow"], "GET")
+
+    def test_ping_method_not_allowed_for_post(self) -> None:
+        status, headers, body = build_response("POST", "/ping")
+
+        self.assertEqual(status, HTTPStatus.METHOD_NOT_ALLOWED)
+        self.assertEqual(headers["Allow"], "GET")
+        self.assertEqual(
+            json.loads(body),
+            {"error": "POST is not allowed for /ping"},
+        )
 
 
 if __name__ == "__main__":
