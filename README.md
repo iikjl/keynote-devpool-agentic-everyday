@@ -255,24 +255,3 @@ Unlike Claude Code's one-shot subprocess, Copilot CLI runs as a persistent serve
 ./dws/dw_prompt.py "Explain this" --model gemini
 ```
 
-## 12 Leverage Points of Agentic Coding
-
-### In Agent (Core Four)
-
-1. Context
-2. Model
-3. Prompt
-4. Tools
-
-### Through Agent
-
-5. Standard Output
-6. Types
-7. Docs
-8. Tests
-9. Architecture
-10. Plans
-11. Templates
-12. AI Developer Workflows
-
-These leverage points are **SDK-agnostic** - they apply whether you use Claude Code, Copilot, or any other agentic coding tool.
